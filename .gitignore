@@ -1,0 +1,18 @@
+_x/
+.ipcache/
+.Xil/
+*.log
+
+# Ignore all binary files
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+*.out
+*.class
+*.jar
+*.pyc
+*.pyo
+*.swp
