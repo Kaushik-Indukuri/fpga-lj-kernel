@@ -4,6 +4,7 @@ _x/
 *.log
 
 # Ignore all binary files
+*
 *.exe
 *.dll
 *.so

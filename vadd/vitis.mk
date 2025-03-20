@@ -57,7 +57,7 @@ KERNEL_NAME = krnl_vadd
 KERNEL_DEFS = 
 KERNEL_INCS = 
 #set target device for XCLBIN
-XDEVICE=xilinx_u200_xdma_201920_1
+XDEVICE=xilinx_u250_gen3x16_xdma_4_1_202210_1
 XDEVICE_REPO_PATH=
 KEEP_TEMP=1
 KERNEL_DEBUG=
@@ -91,4 +91,6 @@ HOST_ARGS = ${XCLBIN}
 
 COMMON_DIR = ../common
 include ${COMMON_DIR}/common.mk
+
+PLATFORM=/opt/xilinx/platforms/${XDEVICE}/${XDEVICE}.xpfm
 
