@@ -54,18 +54,19 @@ ALL TIMES.
 #include <iostream>
 #include <stdlib.h>
 #include <cmath>
+#include <random> 
 
 static const int DATA_SIZE = 4096;
 
 // Default simulation parameters
-static const int MAX_PARTICLES = 1024;
+static const int PARTICLES = 1024;
 static const float DEFAULT_EPSILON = 1.0f;  // Depth of potential well
 static const float DEFAULT_SIGMA = 1.0f;    // Distance at which potential is zero
 static const float DEFAULT_CUTOFF = 2.5f * DEFAULT_SIGMA;  // Typical cutoff distance
 
 // CPU implementation of Lennard-Jones force calculation for verification
 void calculate_lj_forces_cpu(
-    const std::vector<particle_position_t, aligned_allocator<particle_position_t>>& positions,
+    std::vector<particle_position_t, aligned_allocator<particle_position_t>>& positions,
     std::vector<force_vector_t, aligned_allocator<force_vector_t>>& forces
 ) {
     int num_particles = positions.size();
@@ -107,6 +108,41 @@ void calculate_lj_forces_cpu(
             forces[j].y -= force_mag * dy;
             forces[j].z -= force_mag * dz;
         }
+    }
+}
+
+// Initialize particles in a simple cubic lattice
+void initialize_particles(
+    std::vector<particle_position_t, aligned_allocator<particle_position_t>>& positions
+) {
+    int num_particles = positions.size();
+
+    // Calculate cubic dimensions to fit all particles
+    int particles_per_side = std::ceil(std::cbrt(num_particles));
+    float spacing = 1.5f * DEFAULT_SIGMA;  // Reasonable spacing to avoid huge initial forces
+    
+    // Place particles in a cubic lattice
+    int count = 0;
+    for (int x = 0; x < particles_per_side && count < num_particles; x++) {
+        for (int y = 0; y < particles_per_side && count < num_particles; y++) {
+            for (int z = 0; z < particles_per_side && count < num_particles; z++) {
+                positions[count].x = x * spacing;
+                positions[count].y = y * spacing;
+                positions[count].z = z * spacing;
+                count++;
+            }
+        }
+    }
+    
+    // Add small random displacements to avoid perfect symmetry
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float_t> dist(-0.01f, 0.01f);
+    
+    for (int i = 0; i < num_particles; i++) {
+        positions[i].x += dist(gen);
+        positions[i].y += dist(gen);
+        positions[i].z += dist(gen);
     }
 }
 
