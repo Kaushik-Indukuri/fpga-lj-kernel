@@ -53,8 +53,62 @@ ALL TIMES.
 #include <fstream>
 #include <iostream>
 #include <stdlib.h>
+#include <cmath>
 
 static const int DATA_SIZE = 4096;
+
+// Default simulation parameters
+static const int MAX_PARTICLES = 1024;
+static const float DEFAULT_EPSILON = 1.0f;  // Depth of potential well
+static const float DEFAULT_SIGMA = 1.0f;    // Distance at which potential is zero
+static const float DEFAULT_CUTOFF = 2.5f * DEFAULT_SIGMA;  // Typical cutoff distance
+
+// CPU implementation of Lennard-Jones force calculation for verification
+void calculate_lj_forces_cpu(
+    const std::vector<particle_position_t, aligned_allocator<particle_position_t>>& positions,
+    std::vector<force_vector_t, aligned_allocator<force_vector_t>>& forces
+) {
+    int num_particles = positions.size();
+    
+    // Initialize forces to zero
+    for (int i = 0; i < num_particles; i++) {
+        forces[i] = {0.0f, 0.0f, 0.0f};
+    }
+    
+    // Calculate forces between all pairs
+    for (int i = 0; i < num_particles; i++) {
+        for (int j = i+1; j < num_particles; j++) {
+            
+            // Calculate distance between particles
+            float dx = positions[j].x - positions[i].x;
+            float dy = positions[j].y - positions[i].y;
+            float dz = positions[j].z - positions[i].z;
+            float r_squared = dx*dx + dy*dy + dz*dz;
+            
+            // Skip if particles are beyond cutoff
+            if (r_squared > DEFAULT_CUTOFF * DEFAULT_CUTOFF) continue;
+            
+            float r = std::sqrt(r_squared);
+            float inv_r = 1.0f / r;
+            
+            // Calculate LJ force magnitude
+            float inv_r6 = std::pow(inv_r, 6);
+            float inv_r12 = inv_r6 * inv_r6;
+            float sigma6 = std::pow(DEFAULT_SIGMA, 6);
+            float sigma12 = sigma6 * sigma6;
+            float force_mag = 24.0f * DEFAULT_EPSILON * (2.0f * sigma12 * inv_r12 - sigma6 * inv_r6) * inv_r * inv_r;
+            
+            // Accumulate force
+            forces[i].x += force_mag * dx;
+            forces[i].y += force_mag * dy;
+            forces[i].z += force_mag * dz;
+
+            forces[j].x -= force_mag * dx; 
+            forces[j].y -= force_mag * dy;
+            forces[j].z -= force_mag * dz;
+        }
+    }
+}
 
 static const std::string error_message =
     "Error: Result mismatch:\n"
