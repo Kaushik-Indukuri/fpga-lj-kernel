@@ -56,10 +56,8 @@ ALL TIMES.
 #include <cmath>
 #include <random> 
 
-static const int DATA_SIZE = 4096;
-
 // Default simulation parameters
-static const int PARTICLES = 1024;
+static const int PARTICLES = 64;
 static const float DEFAULT_EPSILON = 1.0f;  // Depth of potential well
 static const float DEFAULT_SIGMA = 1.0f;    // Distance at which potential is zero
 static const float DEFAULT_CUTOFF = 2.5f * DEFAULT_SIGMA;  // Typical cutoff distance
@@ -160,10 +158,19 @@ int main(int argc, char* argv[]) {
     std::string xclbinFilename = argv[1];
 
     // Compute the size of array in bytes
-    size_t size_in_bytes = DATA_SIZE * sizeof(int);
+    size_t positions_size_bytes = PARTICLES * sizeof(particle_position_t);
+    size_t forces_size_bytes = PARTICLES * sizeof(force_vector_t);
 
-    // Creates a vector of DATA_SIZE elements with an initial value of 10 and 32
-    // using customized allocator for getting buffer alignment to 4k boundary
+    // Allocate aligned memory for particle data
+    std::vector<particle_position_t, aligned_allocator<particle_position_t>> 
+        particle_positions(PARTICLES);
+    std::vector<force_vector_t, aligned_allocator<force_vector_t>> 
+        particle_forces_fpga(PARTICLES);
+    std::vector<force_vector_t, aligned_allocator<force_vector_t>> 
+        particle_forces_cpu(PARTICLES);
+    
+    // Initialize particles
+    initialize_particles(particle_positions);
 
     std::vector<cl::Device> devices;
     cl_int err;
@@ -194,6 +201,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    // Attempts to open the XCLBIN file to verify it exists
     std::cout << "INFO: Reading " << xclbinFilename << std::endl;
     FILE* fp;
     if ((fp = fopen(xclbinFilename.c_str(), "r")) == nullptr) {
@@ -236,30 +244,26 @@ int main(int argc, char* argv[]) {
 
     // These commands will allocate memory on the Device. The cl::Buffer objects can
     // be used to reference the memory locations on the device.
-    OCL_CHECK(err, cl::Buffer buffer_a(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
-    OCL_CHECK(err, cl::Buffer buffer_b(context, CL_MEM_READ_ONLY, size_in_bytes, NULL, &err));
-    OCL_CHECK(err, cl::Buffer buffer_result(context, CL_MEM_WRITE_ONLY, size_in_bytes, NULL, &err));
+    OCL_CHECK(err, cl::Buffer buffer_input(context, CL_MEM_READ_ONLY, positions_size_bytes, NULL, &err));
+    OCL_CHECK(err, cl::Buffer buffer_result(context, CL_MEM_WRITE_ONLY, forces_size_bytes, NULL, &err));
 
     // set the kernel Arguments
     int narg = 0;
-    OCL_CHECK(err, err = krnl_vector_add.setArg(narg++, buffer_a));
-    OCL_CHECK(err, err = krnl_vector_add.setArg(narg++, buffer_b));
+    OCL_CHECK(err, err = krnl_vector_add.setArg(narg++, buffer_input));
     OCL_CHECK(err, err = krnl_vector_add.setArg(narg++, buffer_result));
-    OCL_CHECK(err, err = krnl_vector_add.setArg(narg++, DATA_SIZE));
+    OCL_CHECK(err, err = krnl_vector_add.setArg(narg++, PARTICLES));
 
     // We then need to map our OpenCL buffers to get the pointers
-    int* ptr_a;
-    int* ptr_b;
-    int* ptr_result;
-    OCL_CHECK(err,
-              ptr_a = (int*)q.enqueueMapBuffer(buffer_a, CL_TRUE, CL_MAP_WRITE, 0, size_in_bytes, NULL, NULL, &err));
-    OCL_CHECK(err,
-              ptr_b = (int*)q.enqueueMapBuffer(buffer_b, CL_TRUE, CL_MAP_WRITE, 0, size_in_bytes, NULL, NULL, &err));
-    OCL_CHECK(err, ptr_result = (int*)q.enqueueMapBuffer(buffer_result, CL_TRUE, CL_MAP_READ, 0, size_in_bytes, NULL,
-                                                         NULL, &err));
+    particle_position_t* ptr_input;
+    force_vector_t* ptr_result;
+    OCL_CHECK(err, ptr_input = (particle_position_t*)q.enqueueMapBuffer(buffer_input, CL_TRUE, CL_MAP_WRITE, 0, positions_size_bytes, NULL, NULL, &err));
+    OCL_CHECK(err, ptr_result = (force_vector_t*)q.enqueueMapBuffer(buffer_result, CL_TRUE, CL_MAP_READ, 0, forces_size_bytes, NULL, NULL, &err));
+
+    // Copy input data to mapped memory
+    memcpy(ptr_input, particle_positions.data(), positions_size_bytes);
 
     // Data will be migrated to kernel space
-    OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_a, buffer_b}, 0 /* 0 means from host*/));
+    OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_input}, 0 /* 0 means from host to device*/));
 
     // Launch the Kernel
     OCL_CHECK(err, err = q.enqueueTask(krnl_vector_add));
@@ -268,25 +272,61 @@ int main(int argc, char* argv[]) {
     // order to view the results. This call will transfer the data from FPGA to
     // source_results vector
     OCL_CHECK(err, q.enqueueMigrateMemObjects({buffer_result}, CL_MIGRATE_MEM_OBJECT_HOST));
-
     OCL_CHECK(err, q.finish());
 
+    // Copy results back to host vectors
+    memcpy(particle_forces_fpga.data(), ptr_result, forces_size_bytes);
+
     // Verify the result
-    int match = 0;
-    for (int i = 0; i < DATA_SIZE; i++) {
-        int host_result = ptr_a[i] + ptr_b[i];
-        if (ptr_result[i] != host_result) {
-            printf(error_message.c_str(), i, host_result, ptr_result[i]);
-            match = 1;
-            break;
+    calculate_lj_forces_cpu(particle_positions, particle_forces_cpu);
+    float tolerance = 1e-3f;  // Tolerance for floating-point comparison
+    float max_diff = 0.0f;
+    int max_diff_idx = -1;
+
+    bool match = true;
+    for (int i = 0; i < PARTICLES; i++) {
+        float fx_diff = std::abs(particle_forces_fpga[i].x - particle_forces_cpu[i].x);
+        float fy_diff = std::abs(particle_forces_fpga[i].y - particle_forces_cpu[i].y);
+        float fz_diff = std::abs(particle_forces_fpga[i].z - particle_forces_cpu[i].z);
+        
+        float diff = std::max(std::max(fx_diff, fy_diff), fz_diff);
+        if (diff > max_diff) {
+            max_diff = diff;
+            max_diff_idx = i;
+        }
+        
+        float cpu_magnitude = std::sqrt(
+            particle_forces_cpu[i].x * particle_forces_cpu[i].x +
+            particle_forces_cpu[i].y * particle_forces_cpu[i].y +
+            particle_forces_cpu[i].z * particle_forces_cpu[i].z
+        );
+        
+        // Use relative error for larger values, absolute for small values
+        if (cpu_magnitude > 1e-5f) {
+            float rel_error = diff / cpu_magnitude;
+            if (rel_error > tolerance) {
+                match = false;
+            }
+        } else if (diff > tolerance) {
+            match = false;
         }
     }
+    
+    if (!match && max_diff_idx >= 0) {
+        std::cout << "Maximum difference at particle " << max_diff_idx << ":" << std::endl;
+        std::cout << "  FPGA: (" << particle_forces_fpga[max_diff_idx].x << ", " 
+                  << particle_forces_fpga[max_diff_idx].y << ", " 
+                  << particle_forces_fpga[max_diff_idx].z << ")" << std::endl;
+        std::cout << "  CPU:  (" << particle_forces_cpu[max_diff_idx].x << ", " 
+                  << particle_forces_cpu[max_diff_idx].y << ", " 
+                  << particle_forces_cpu[max_diff_idx].z << ")" << std::endl;
+        std::cout << "  Max difference: " << max_diff << std::endl;
+    }
 
-    OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_a, ptr_a));
-    OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_b, ptr_b));
+    OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_input, ptr_input));
     OCL_CHECK(err, err = q.enqueueUnmapMemObject(buffer_result, ptr_result));
     OCL_CHECK(err, err = q.finish());
 
-    std::cout << "TEST " << (match ? "FAILED" : "PASSED") << std::endl;
-    return (match ? EXIT_FAILURE : EXIT_SUCCESS);
+    std::cout << "TEST " << (match ? "PASSED" : "FAILED") << std::endl;
+    return (match ? EXIT_SUCCESS : EXIT_FAILURE);
 }
