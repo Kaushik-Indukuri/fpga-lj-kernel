@@ -83,14 +83,25 @@ Input Vector 2 from Global Memory --->|             |      |__|
 #include <stdint.h>
 #include <hls_stream.h>
 
-#define DATA_SIZE 4096
+// Define data types
+typedef float float_t;
+
+typedef struct {
+    float_t x, y, z;
+} particle_position_t;
+
+typedef struct {
+    float_t x, y, z;
+} force_vector_t;
+
+#define PARTICLES 64
 
 // TRIPCOUNT identifier
-const int c_size = DATA_SIZE;
+const int c_size = PARTICLES;
 
-static void load_input(uint32_t* in, hls::stream<uint32_t>& inStream, int size) {
+static void load_input(particle_position_t* in, hls::stream<particle_position_t>& inStream, int num_particles) {
 mem_rd:
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < num_particles; i++) {
 #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
         inStream << in[i];
     }
