@@ -86,6 +86,8 @@ void calculate_lj_forces_cpu(
             
             // Skip if particles are beyond cutoff
             if (r_squared > DEFAULT_CUTOFF * DEFAULT_CUTOFF) continue;
+            // Skip if particles are very close
+            if (r_squared <= 0.0001f) continue;
             
             float r = std::sqrt(r_squared);
             float inv_r = 1.0f / r;
@@ -135,7 +137,7 @@ void initialize_particles(
     // Add small random displacements to avoid perfect symmetry
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_real_distribution<float_t> dist(-0.01f, 0.01f);
+    std::uniform_real_distribution<float> dist(-0.01f, 0.01f);
     
     for (int i = 0; i < num_particles; i++) {
         positions[i].x += dist(gen);

@@ -52,14 +52,12 @@ ALL TIMES.
 
 #include <CL/cl2.hpp>
 
-typedef float float_t;
-
 typedef struct {
-    float_t x, y, z;
+    float x, y, z;
 } particle_position_t;
 
 typedef struct {
-    float_t x, y, z;
+    float x, y, z;
 } force_vector_t;
 
 //Customized buffer allocation for 4K boundary alignment

@@ -85,14 +85,12 @@ Input Vector 2 from Global Memory --->|             |      |__|
 #include <cmath>
 
 // Define data types
-typedef float float_t;
-
 typedef struct {
-    float_t x, y, z;
+    float x, y, z;
 } particle_position_t;
 
 typedef struct {
-    float_t x, y, z;
+    float x, y, z;
 } force_vector_t;
 
 // Default simulation parameters
