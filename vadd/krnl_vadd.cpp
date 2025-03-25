@@ -186,9 +186,9 @@ execute:
     }
 }
 
-static void store_result(uint32_t* out, hls::stream<uint32_t>& out_stream, int size) {
+static void store_result(force_vector_t* out, hls::stream<force_vector_t>& out_stream, int num_particles) {
 mem_wr:
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < num_particles; i++) {
 #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
         out[i] = out_stream.read();
     }
