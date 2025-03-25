@@ -131,6 +131,48 @@ static float compute_lj_force_magnitude(float r_squared, float epsilon, float si
     return 24.0f * epsilon * (2.0f * sigma12 * inv_r12 - sigma6 * inv_r6) * inv_r * inv_r;
 }
 
+// Compute Lennard-Jones forces between all pairs of particles
+static void compute_lj_forces(hls::stream<particle_position_t>& in_stream,
+                              hls::stream<force_vector_t>& out_stream,
+                              int num_particles) {
+    particle_position_t particle_positions[PARTICLES];
+
+    // First, read all positions into local memory
+    for (int i = 0; i < num_particles; i++) {
+    #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+        particle_positions[i] = in_stream.read();
+    }
+
+execute:
+    // Calculate forces for each particle
+    for (int i = 0; i < num_particles; i++) {
+        #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+        force_vector_t net_force = {0.0f, 0.0f, 0.0f};
+                
+        // Calculate interaction with all other particles
+        for (int j = 0; j < num_particles; j++) {
+            #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+            if (i != j) {
+                particle_position_t p1 = positions[i];
+                particle_position_t p2 = positions[j];
+                float r_squared = compute_distance_squared(p1, p2);
+                
+                if (r_squared <= DEFAULT_CUTOFF * DEFAULT_CUTOFF && r_squared > 0.0001f) { 
+                    float force_mag = compute_lj_force_magnitude(r_squared, DEFAULT_EPSILON, DEFAULT_SIGMA);
+                    
+                    // Accumulate force components
+                    net_force.x += force_mag * dx;
+                    net_force.y += force_mag * dy;
+                    net_force.z += force_mag * dz;
+                }
+            }
+        }
+                
+        force_stream << net_force;
+    }
+}
+
+
 static void compute_add(hls::stream<uint32_t>& in1_stream,
                         hls::stream<uint32_t>& in2_stream,
                         hls::stream<uint32_t>& out_stream,
