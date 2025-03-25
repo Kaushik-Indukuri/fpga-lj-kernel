@@ -107,6 +107,14 @@ mem_rd:
     }
 }
 
+// Compute distance squared between two particles
+static float_t compute_distance_squared(particle_position_t p1, particle_position_t p2) {
+    float_t dx = p1.x - p2.x;
+    float_t dy = p1.y - p2.y;
+    float_t dz = p1.z - p2.z;
+    return dx*dx + dy*dy + dz*dz;
+}
+
 static void compute_add(hls::stream<uint32_t>& in1_stream,
                         hls::stream<uint32_t>& in2_stream,
                         hls::stream<uint32_t>& out_stream,
