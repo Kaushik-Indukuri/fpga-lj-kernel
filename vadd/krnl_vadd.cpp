@@ -82,6 +82,7 @@ Input Vector 2 from Global Memory --->|             |      |__|
 // Includes
 #include <stdint.h>
 #include <hls_stream.h>
+#include <cmath>
 
 // Define data types
 typedef float float_t;
@@ -94,7 +95,11 @@ typedef struct {
     float_t x, y, z;
 } force_vector_t;
 
-#define PARTICLES 64
+// Default simulation parameters
+static const int PARTICLES = 64;
+static const float DEFAULT_EPSILON = 1.0f;  // Depth of potential well
+static const float DEFAULT_SIGMA = 1.0f;    // Distance at which potential is zero
+static const float DEFAULT_CUTOFF = 2.5f * DEFAULT_SIGMA;  // Typical cutoff distance
 
 // TRIPCOUNT identifier
 const int c_size = PARTICLES;
@@ -108,11 +113,24 @@ mem_rd:
 }
 
 // Compute distance squared between two particles
-static float_t compute_distance_squared(particle_position_t p1, particle_position_t p2) {
-    float_t dx = p1.x - p2.x;
-    float_t dy = p1.y - p2.y;
-    float_t dz = p1.z - p2.z;
+static float compute_distance_squared(particle_position_t p1, particle_position_t p2) {
+    float dx = p1.x - p2.x;
+    float dy = p1.y - p2.y;
+    float dz = p1.z - p2.z;
     return dx*dx + dy*dy + dz*dz;
+}
+
+// Compute Lennard-Jones force magnitude between two particles
+static float compute_lj_force_magnitude(float r_squared, float epsilon, float sigma) {
+    float r = std::sqrt(r_squared);
+    float inv_r = 1.0f / r;
+    float inv_r6 = inv_r * inv_r * inv_r * inv_r * inv_r * inv_r;
+    float inv_r12 = inv_r6 * inv_r6;
+    float sigma6 = sigma * sigma * sigma * sigma * sigma * sigma;
+    float sigma12 = sigma6 * sigma6;
+    
+    // F(r) = 24ε[(2σ^12/r^13) - (σ^6/r^7)]
+    return 24.0f * epsilon * (2.0f * sigma12 * inv_r12 - sigma6 * inv_r6) * inv_r * inv_r;
 }
 
 static void compute_add(hls::stream<uint32_t>& in1_stream,
