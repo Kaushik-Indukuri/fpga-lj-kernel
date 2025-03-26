@@ -110,14 +110,6 @@ mem_rd:
     }
 }
 
-// Compute distance squared between two particles
-static float compute_distance_squared(particle_position_t p1, particle_position_t p2) {
-    float dx = p1.x - p2.x;
-    float dy = p1.y - p2.y;
-    float dz = p1.z - p2.z;
-    return dx*dx + dy*dy + dz*dz;
-}
-
 // Compute Lennard-Jones force magnitude between two particles
 static float compute_lj_force_magnitude(float r_squared, float epsilon, float sigma) {
     float r = std::sqrt(r_squared);
@@ -135,6 +127,8 @@ static float compute_lj_force_magnitude(float r_squared, float epsilon, float si
 static void compute_lj_forces(hls::stream<particle_position_t>& in_stream,
                               hls::stream<force_vector_t>& out_stream,
                               int num_particles) {
+
+execute:
     particle_position_t particle_positions[PARTICLES];
 
     // First, read all positions into local memory
@@ -143,7 +137,6 @@ static void compute_lj_forces(hls::stream<particle_position_t>& in_stream,
         particle_positions[i] = in_stream.read();
     }
 
-execute:
     // Calculate forces for each particle
     for (int i = 0; i < num_particles; i++) {
         #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
@@ -153,9 +146,13 @@ execute:
         for (int j = 0; j < num_particles; j++) {
             #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
             if (i != j) {
-                particle_position_t p1 = positions[i];
-                particle_position_t p2 = positions[j];
-                float r_squared = compute_distance_squared(p1, p2);
+                particle_position_t p1 = particle_positions[i];
+                particle_position_t p2 = particle_positions[j];
+
+                float dx = p1.x - p2.x;
+                float dy = p1.y - p2.y;
+                float dz = p1.z - p2.z;
+                float r_squared = dx*dx + dy*dy + dz*dz;
                 
                 if (r_squared <= DEFAULT_CUTOFF * DEFAULT_CUTOFF && r_squared > 0.0001f) { 
                     float force_mag = compute_lj_force_magnitude(r_squared, DEFAULT_EPSILON, DEFAULT_SIGMA);
@@ -168,21 +165,7 @@ execute:
             }
         }
                 
-        force_stream << net_force;
-    }
-}
-
-
-static void compute_add(hls::stream<uint32_t>& in1_stream,
-                        hls::stream<uint32_t>& in2_stream,
-                        hls::stream<uint32_t>& out_stream,
-                        int size) {
-// The kernel is operating with vector of NUM_WORDS integers. The + operator performs
-// an element-wise add, resulting in NUM_WORDS parallel additions.
-execute:
-    for (int i = 0; i < size; i++) {
-#pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
-        out_stream << (in1_stream.read() + in2_stream.read());
+        out_stream << net_force;
     }
 }
 
@@ -197,29 +180,25 @@ mem_wr:
 extern "C" {
 
 /*
-    Vector Addition Kernel
+    Lennard-Jones Force Calculation Kernel
 
     Arguments:
-        in1  (input)  --> Input vector 1
-        in2  (input)  --> Input vector 2
-        out  (output) --> Output vector
-        size (input)  --> Number of elements in vector
+        in  (input)  --> Input particle positions vector
+        out  (output) --> Output forces vector
+        num_particles (input)  --> Number of particles in vector
 */
 
-void krnl_vadd(uint32_t* in1, uint32_t* in2, uint32_t* out, int size) {
-#pragma HLS INTERFACE m_axi port = in1 bundle = gmem0
-#pragma HLS INTERFACE m_axi port = in2 bundle = gmem1
-#pragma HLS INTERFACE m_axi port = out bundle = gmem0
+void krnl_vadd(particle_position_t* in, force_vector_t* out, int num_particles) {
+#pragma HLS INTERFACE m_axi port = in bundle = gmem0
+#pragma HLS INTERFACE m_axi port = out bundle = gmem1
 
-    static hls::stream<uint32_t> in1_stream("input_stream_1");
-    static hls::stream<uint32_t> in2_stream("input_stream_2");
-    static hls::stream<uint32_t> out_stream("output_stream");
+    static hls::stream<particle_position_t> in_stream("input_stream");
+    static hls::stream<force_vector_t> out_stream("output_stream");
 
 #pragma HLS dataflow
     // dataflow pragma instruct compiler to run following three APIs in parallel
-    load_input(in1, in1_stream, size);
-    load_input(in2, in2_stream, size);
-    compute_add(in1_stream, in2_stream, out_stream, size);
-    store_result(out, out_stream, size);
+    load_input(in, in_stream, num_particles);
+    compute_lj_forces(in_stream, out_stream, num_particles);
+    store_result(out, out_stream, num_particles);
 }
 }

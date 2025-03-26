@@ -79,9 +79,9 @@ void calculate_lj_forces_cpu(
         for (int j = i+1; j < num_particles; j++) {
             
             // Calculate distance between particles
-            float dx = positions[j].x - positions[i].x;
-            float dy = positions[j].y - positions[i].y;
-            float dz = positions[j].z - positions[i].z;
+            float dx = positions[i].x - positions[j].x;
+            float dy = positions[i].y - positions[j].y;
+            float dz = positions[i].z - positions[j].z;
             float r_squared = dx*dx + dy*dy + dz*dz;
             
             // Skip if particles are beyond cutoff
