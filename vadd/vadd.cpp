@@ -57,10 +57,10 @@ ALL TIMES.
 #include <random> 
 
 // Default simulation parameters
-static const int PARTICLES = 64;
+static const int PARTICLES = 10000;
 static const float DEFAULT_EPSILON = 1.0f;  // Depth of potential well
 static const float DEFAULT_SIGMA = 1.0f;    // Distance at which potential is zero
-static const float DEFAULT_CUTOFF = 2.5f * DEFAULT_SIGMA;  // Typical cutoff distance
+static const float DEFAULT_CUTOFF = 2.5f;  // Typical cutoff distance
 
 // CPU implementation of Lennard-Jones force calculation for verification
 void calculate_lj_forces_cpu(

@@ -94,18 +94,15 @@ typedef struct {
 } force_vector_t;
 
 // Default simulation parameters
-static const int PARTICLES = 64;
+#define PARTICLES 10000
 static const float DEFAULT_EPSILON = 1.0f;  // Depth of potential well
 static const float DEFAULT_SIGMA = 1.0f;    // Distance at which potential is zero
-static const float DEFAULT_CUTOFF = 2.5f * DEFAULT_SIGMA;  // Typical cutoff distance
-
-// TRIPCOUNT identifier
-const int c_size = PARTICLES;
+static const float DEFAULT_CUTOFF = 2.5f;  // Typical cutoff distance
 
 static void load_input(particle_position_t* in, hls::stream<particle_position_t>& inStream, int num_particles) {
 mem_rd:
     for (int i = 0; i < num_particles; i++) {
-#pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+#pragma HLS LOOP_TRIPCOUNT min = 10000 max = 10000
         inStream << in[i];
     }
 }
@@ -133,20 +130,23 @@ execute:
 
     // First, read all positions into local memory
     for (int i = 0; i < num_particles; i++) {
-    #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+    #pragma HLS LOOP_TRIPCOUNT min = 10000 max = 10000
         particle_positions[i] = in_stream.read();
     }
 
     // Calculate forces for each particle
     for (int i = 0; i < num_particles; i++) {
-        #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
-        force_vector_t net_force = {0.0f, 0.0f, 0.0f};
+        #pragma HLS LOOP_TRIPCOUNT min = 10000 max = 10000
+        float net_fx = 0.0f;
+        float net_fy = 0.0f;
+        float net_fz = 0.0f;
+        // Get current particle position once to reduce redundant loads
+        particle_position_t p1 = particle_positions[i];
                 
         // Calculate interaction with all other particles
         for (int j = 0; j < num_particles; j++) {
-            #pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+            #pragma HLS LOOP_TRIPCOUNT min = 10000 max = 10000
             if (i != j) {
-                particle_position_t p1 = particle_positions[i];
                 particle_position_t p2 = particle_positions[j];
 
                 float dx = p1.x - p2.x;
@@ -158,13 +158,17 @@ execute:
                     float force_mag = compute_lj_force_magnitude(r_squared, DEFAULT_EPSILON, DEFAULT_SIGMA);
                     
                     // Accumulate force components
-                    net_force.x += force_mag * dx;
-                    net_force.y += force_mag * dy;
-                    net_force.z += force_mag * dz;
+                    net_fx += force_mag * dx;
+                    net_fy += force_mag * dy;
+                    net_fz += force_mag * dz;
                 }
             }
         }
-                
+
+        force_vector_t net_force;
+        net_force.x = net_fx;
+        net_force.y = net_fy;
+        net_force.z = net_fz;
         out_stream << net_force;
     }
 }
@@ -172,7 +176,7 @@ execute:
 static void store_result(force_vector_t* out, hls::stream<force_vector_t>& out_stream, int num_particles) {
 mem_wr:
     for (int i = 0; i < num_particles; i++) {
-#pragma HLS LOOP_TRIPCOUNT min = c_size max = c_size
+#pragma HLS LOOP_TRIPCOUNT min = 10000 max = 10000
         out[i] = out_stream.read();
     }
 }
@@ -192,7 +196,7 @@ void krnl_vadd(particle_position_t* in, force_vector_t* out, int num_particles) 
 #pragma HLS INTERFACE m_axi port = in bundle = gmem0
 #pragma HLS INTERFACE m_axi port = out bundle = gmem1
 
-    static hls::stream<particle_position_t> in_stream("input_stream");
+    static hls::stream<particle_position_t> in_stream("input_stream"); 
     static hls::stream<force_vector_t> out_stream("output_stream");
 
 #pragma HLS dataflow
